@@ -41,11 +41,11 @@ class SpinningBall:
         init_cond = [*self.pos_0, *self.vel_0]
         
         start_time = 0
-        eval_times = []
+        eval_times = np.array([])
         
-        traj_x = []
-        traj_y = []
-        traj_z = []
+        traj_x = np.array([])
+        traj_y = np.array([])
+        traj_z = np.array([])
 
         while start_time < end_time:
         
