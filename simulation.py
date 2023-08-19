@@ -1,50 +1,80 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.integrate import solve_ivp
 
 class SpinningBall:
-    def __init__(self, mass, radius, initial_position, initial_velocity, angular_velocity):
+    def __init__(self, mass, radius, pos_0, vel_0, ang_vel):
         self.mass = mass
         self.radius = radius
-        self.initial_position = initial_position
-        self.initial_velocity = initial_velocity
-        self.angular_velocity = angular_velocity
+        self.pos_0 = pos_0
+        self.vel_0 = vel_0
+        self.ang_vel = ang_vel
         
-        self.A = np.pi * ((self.radius ** 2))
-        self.rho = 0.09
-        self.C = 0.1
-        self.g = np.array([0, 0, -9.81])
+        # Constants
+        self.area = np.pi * (radius ** 2)
+        self.air_density = 0.09
+        self.drag_coeff = 0.1
+        self.gravity = np.array([0, 0, -9.81])
+        self.max_bounce = 1
         
-    def dSdt(self, t, S):
-        x, y, z, vx, vy, vz = S
-        v = np.array([vx, vy, vz])
+    def derivative(self, t, state):
+        x, y, z, vx, vy, vz = state
+        vel = np.array([vx, vy, vz])
+        vel_mag = np.linalg.norm(vel)
+        Cm = 1 / (2 + 1.98 * (vel_mag / (self.ang_vel * self.radius)))
         
-        v_magnitude = np.linalg.norm(v)
-        Cm = 1 / (2 + 1.98 * (v_magnitude / (self.angular_velocity * self.radius)))
-        F_magnus = Cm * self.rho * np.pi * ((self.radius ** 2) / 8) * np.cross(np.array([0, 0, self.angular_velocity]), v)
-        F_drag = -0.5 * self.rho * (v_magnitude ** 2) * self.C * self.A * (v / v_magnitude)
-        F_gravity = self.mass * self.g
+        Magnus = Cm * self.air_density * np.pi * ((self.radius ** 2) / 8) * np.cross(np.array([0, 0, self.ang_vel]), vel)
+        drag = -0.5 * self.air_density * (vel_mag ** 2) * self.drag_coeff * self.area * (vel / vel_mag)
+        gravity = self.mass * self.gravity
 
-        a = (F_drag + F_gravity + F_magnus) / self.mass
-        
-        # Bounce 
-        if z < self.radius and vz < 0:
-            vz = -vz * 0.7
+        acc = (drag + gravity + Magnus) / self.mass
             
-        return [vx, vy, vz, a[0], a[1], a[2]]
+        return [vx, vy, vz, acc[0], acc[1], acc[2]]
     
-    def eulerMethod(self, fun, y0, h, ti, tf):
-        n = int((tf - ti) / h)
-        t = np.linspace(ti, tf, n+1)
-        y = np.zeros((n+1, len(y0)))
-        y[0] = y0
-        for i in range(n):
-            y[i+1] = np.add(y[i], np.multiply(fun(t[i], y[i]), h))
-        return y[:, 0], y[:, 1], y[:, 2], y[:, 3], y[:, 4], y[:, 5], t
+    def hit_ground(self, t, state):
+        return state[2]
+    
+    hit_ground.terminal  = True
+    hit_ground.direction = -1
+    
+    def solve(self, end_time):
+        init_cond = [*self.pos_0, *self.vel_0]
+        
+        start_time = 0
+        eval_times = []
+        
+        traj_x = []
+        traj_y = []
+        traj_z = []
 
-    def simulateEuler(self, t_end, h):
-        initial_conditions = [*self.initial_position, *self.initial_velocity]
-        sol = self.eulerMethod(self.dSdt, initial_conditions, h, 0, t_end)
-        return sol
+        while start_time < end_time:
+        
+            solution = solve_ivp(self.derivative, 
+                                 [0, end_time], 
+                                 init_cond, 
+                                 events=self.hit_ground, 
+                                 dense_output=True)
+            
+            init_cond = solution.y[:, -1]
+            
+            if init_cond[2] < 0.05:
+                init_cond[-1] = -init_cond[-1] * 0.9
+                
+            eval_times = np.linspace(0, solution.t[-1], 1000)
+            start_time = solution.t[-1]
+            
+            solution_at_eval_times = solution.sol(eval_times)
+            
+            traj_x = np.append(traj_x, solution_at_eval_times[0])
+            traj_y = np.append(traj_y, solution_at_eval_times[1])
+            traj_z = np.append(traj_z, solution_at_eval_times[2])
+            
+            if self.max_bounce == 0:
+                break
+            
+            self.max_bounce -= 1
+        
+        return [traj_x, traj_y, traj_z]
             
     def plot_trajectory(self, trajectory):
         fig = plt.figure()
@@ -61,8 +91,8 @@ class SpinningBall:
         plt.show()
 
 # Define the ball with its properties
-ball = SpinningBall(mass=0.1, radius=0.035, initial_position=[0, 0, 2.5], initial_velocity=[0, 24, 2], angular_velocity=100)
+ball = SpinningBall(mass=0.1, radius=0.035, pos_0=[0, 0, 2.2], vel_0=[0, 24, 2], ang_vel=15)
 
 # Simulate and plot the trajectory
-trajectoryEuler = ball.simulateEuler(t_end=10, h=0.01)
-ball.plot_trajectory(trajectoryEuler)
+trajectory = ball.solve(end_time=10)
+ball.plot_trajectory(trajectory)
